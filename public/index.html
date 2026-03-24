@@ -166,13 +166,8 @@ td.dn{color:var(--red)}
 const MARKETS=['BTC_15MIN','BTC_1HOUR','ETH_15MIN','ETH_1HOUR'];
 const LABELS={'BTC_15MIN':'BTC 15m','BTC_1HOUR':'BTC 1h','ETH_15MIN':'ETH 15m','ETH_1HOUR':'ETH 1h'};
 let activeTab=MARKETS[0], chart=null, ws=null, tickCount=0, autoScroll=true;
-const MAX_POINTS=7200;
 const D={}, MK={}, S={};
 MARKETS.forEach(m=>{D[m]={up:[],down:[]};MK[m]=[];});
-
-function trimData(m){
-  if(D[m].up.length>MAX_POINTS){D[m].up=D[m].up.slice(-MAX_POINTS);D[m].down=D[m].down.slice(-MAX_POINTS)}
-}
 
 /* ═══ WS ═══ */
 function connectWS(){
@@ -187,7 +182,6 @@ function onTick(t){
   const ts=new Date(t.timestamp).getTime();
   D[m].up.push({x:ts,y:Number(t.price_up)});
   D[m].down.push({x:ts,y:Number(t.price_down)});
-  trimData(m);
   if(!S[m])S[m]={};
   S[m].priceUp=Number(t.price_up);S[m].priceDown=Number(t.price_down);
   S[m].secondsRemaining=t.seconds_remaining;S[m].cycleId=t.cycle_id;S[m].active=true;
