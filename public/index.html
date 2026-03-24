@@ -166,8 +166,13 @@ td.dn{color:var(--red)}
 const MARKETS=['BTC_15MIN','BTC_1HOUR','ETH_15MIN','ETH_1HOUR'];
 const LABELS={'BTC_15MIN':'BTC 15m','BTC_1HOUR':'BTC 1h','ETH_15MIN':'ETH 15m','ETH_1HOUR':'ETH 1h'};
 let activeTab=MARKETS[0], chart=null, ws=null, tickCount=0, autoScroll=true;
+const MAX_POINTS=7200;
 const D={}, MK={}, S={};
 MARKETS.forEach(m=>{D[m]={up:[],down:[]};MK[m]=[];});
+
+function trimData(m){
+  if(D[m].up.length>MAX_POINTS){D[m].up=D[m].up.slice(-MAX_POINTS);D[m].down=D[m].down.slice(-MAX_POINTS)}
+}
 
 /* ═══ WS ═══ */
 function connectWS(){
@@ -182,6 +187,7 @@ function onTick(t){
   const ts=new Date(t.timestamp).getTime();
   D[m].up.push({x:ts,y:Number(t.price_up)});
   D[m].down.push({x:ts,y:Number(t.price_down)});
+  trimData(m);
   if(!S[m])S[m]={};
   S[m].priceUp=Number(t.price_up);S[m].priceDown=Number(t.price_down);
   S[m].secondsRemaining=t.seconds_remaining;S[m].cycleId=t.cycle_id;S[m].active=true;
@@ -256,14 +262,16 @@ function buildChart(){
   chart=new Chart(ctx,{
     type:'line',
     data:{datasets:[
-      {label:'YES',borderColor:'#34d399',backgroundColor:'rgba(52,211,153,0.04)',borderWidth:1.5,pointRadius:0,tension:0.35,fill:{target:{value:0.5},above:'rgba(52,211,153,0.04)',below:'transparent'},data:D[activeTab].up},
-      {label:'NO',borderColor:'#fbbf24',backgroundColor:'transparent',borderWidth:1.5,pointRadius:0,tension:0.35,fill:false,data:D[activeTab].down},
+      {label:'YES',borderColor:'#34d399',backgroundColor:'rgba(52,211,153,0.04)',borderWidth:1.5,pointRadius:0,pointHitRadius:4,tension:0.3,fill:{target:{value:0.5},above:'rgba(52,211,153,0.04)',below:'transparent'},data:D[activeTab].up,indexAxis:'x'},
+      {label:'NO',borderColor:'#fbbf24',backgroundColor:'transparent',borderWidth:1.5,pointRadius:0,pointHitRadius:4,tension:0.3,fill:false,data:D[activeTab].down,indexAxis:'x'},
     ]},
     options:{
-      responsive:true,maintainAspectRatio:false,animation:false,
+      responsive:true,maintainAspectRatio:false,
+      animation:false,transitions:{active:{animation:{duration:0}}},
       interaction:{mode:'index',intersect:false},
       plugins:{
         legend:{display:false},
+        decimation:{enabled:true,algorithm:'lttb',samples:800},
         tooltip:{
           backgroundColor:'rgba(10,10,10,.92)',borderColor:'rgba(255,255,255,.08)',borderWidth:1,
           padding:10,cornerRadius:8,
@@ -323,17 +331,30 @@ function buildChart(){
   });
 }
 
+function updateBadges(){
+  const s=S[activeTab];
+  document.getElementById('badgeUp').textContent=s?.priceUp!=null?s.priceUp.toFixed(3):'--';
+  document.getElementById('badgeDown').textContent=s?.priceDown!=null?s.priceDown.toFixed(3):'--';
+}
+
 function refreshChart(){
   if(!chart)return;
-  const s=S[activeTab];
-  if(s){
-    document.getElementById('badgeUp').textContent=s.priceUp!=null?s.priceUp.toFixed(3):'--';
-    document.getElementById('badgeDown').textContent=s.priceDown!=null?s.priceDown.toFixed(3):'--';
-  }
+  updateBadges();
   if(autoScroll){const w=parseInt(document.getElementById('durationSel').value),n=Date.now();chart.options.scales.x.min=n-w*1000;chart.options.scales.x.max=n}
   chart.update('none');
 }
-function switchChart(){if(!chart)return;chart.data.datasets[0].data=D[activeTab].up;chart.data.datasets[1].data=D[activeTab].down;autoScroll=true;refreshChart()}
+
+function switchChart(){
+  if(!chart)return;
+  chart.data.datasets[0].data=D[activeTab].up;
+  chart.data.datasets[1].data=D[activeTab].down;
+  autoScroll=true;
+  updateBadges();
+  const w=parseInt(document.getElementById('durationSel').value),n=Date.now();
+  chart.options.scales.x.min=n-w*1000;
+  chart.options.scales.x.max=n;
+  chart.update('none');
+}
 
 document.getElementById('durationSel').addEventListener('change',()=>{autoScroll=true;refreshChart()});
 document.getElementById('mainChart').addEventListener('wheel',e=>{if(!chart)return;e.preventDefault();autoScroll=false;const s=e.deltaY>0?-10000:10000;chart.options.scales.x.min+=s;chart.options.scales.x.max+=s;chart.update('none')});
