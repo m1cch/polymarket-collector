@@ -1,6 +1,7 @@
 const db = require('./db');
 
 const GAMMA = 'https://gamma-api.polymarket.com';
+const CLOB = 'https://clob.polymarket.com';
 
 const MARKETS_CONFIG = [
   { key: 'BTC_15MIN', coin: 'btc', type: '15m', durationMin: 15 },
@@ -39,12 +40,11 @@ function getETDate(offsetMs = 0) {
 function get1hSlug(coin, offsetMs = 0) {
   const months = ['january','february','march','april','may','june','july','august','september','october','november','december'];
   const et = getETDate(offsetMs);
-  const month = months[et.month];
   let hour = et.hour;
   const ampm = hour >= 12 ? 'pm' : 'am';
   hour = hour % 12 || 12;
   const coinName = coin === 'btc' ? 'bitcoin' : 'ethereum';
-  return `${coinName}-up-or-down-${month}-${et.day}-${et.year}-${hour}${ampm}-et`;
+  return `${coinName}-up-or-down-${months[et.month]}-${et.day}-${et.year}-${hour}${ampm}-et`;
 }
 
 async function fetchJSON(url) {
@@ -57,28 +57,24 @@ async function refreshMarket(cfg) {
   const state = marketState.get(cfg.key) || {};
   try {
     let event;
-
     if (cfg.type === '15m') {
-      const slug = get15mSlug(cfg.coin);
-      const events = await fetchJSON(`${GAMMA}/events?slug=${slug}`);
+      const events = await fetchJSON(`${GAMMA}/events?slug=${get15mSlug(cfg.coin)}`);
       event = events?.[0];
     } else {
-      const slug = get1hSlug(cfg.coin);
-      let events = await fetchJSON(`${GAMMA}/events?slug=${slug}`);
-      if (!events?.length) {
-        events = await fetchJSON(`${GAMMA}/events?slug=${get1hSlug(cfg.coin, -3600000)}`);
-      }
+      let events = await fetchJSON(`${GAMMA}/events?slug=${get1hSlug(cfg.coin)}`);
+      if (!events?.length) events = await fetchJSON(`${GAMMA}/events?slug=${get1hSlug(cfg.coin, -3600000)}`);
       event = events?.[0];
     }
 
     if (!event?.markets?.length) {
-      console.warn(`[collector] No event for ${cfg.key}`);
       state.active = false;
       marketState.set(cfg.key, state);
+      console.warn(`[collector] No event for ${cfg.key}`);
       return;
     }
 
     const mkt = event.markets[0];
+    const tokenIds = JSON.parse(mkt.clobTokenIds);
     const endDate = new Date(mkt.endDate);
     const startDate = mkt.eventStartTime
       ? new Date(mkt.eventStartTime)
@@ -88,27 +84,26 @@ async function refreshMarket(cfg) {
       ? Math.floor(startDate.getTime() / 1000 / 900)
       : Math.floor(startDate.getTime() / 1000 / 3600);
 
-    const outcomePrices = JSON.parse(mkt.outcomePrices);
-
     Object.assign(state, {
       key: cfg.key,
       active: true,
       eventSlug: event.slug,
       gammaMarketId: mkt.id,
-      conditionId: mkt.conditionId,
+      upTokenId: tokenIds[0],
+      downTokenId: tokenIds[1],
       cycleStart: startDate.toISOString(),
       cycleEnd: endDate.toISOString(),
       cycleId,
       durationMin: cfg.durationMin,
       closed: mkt.closed || false,
-      priceUp: parseFloat(outcomePrices[0]),
-      priceDown: parseFloat(outcomePrices[1]),
+      priceUp: null,
+      priceDown: null,
       resolving: false,
       openingPriceUp: state.openingPriceUp ?? null,
     });
 
     marketState.set(cfg.key, state);
-    console.log(`[collector] Refreshed ${cfg.key}: cycle #${cycleId}, market=${mkt.id}, ends ${endDate.toISOString()}, UP=${outcomePrices[0]}`);
+    console.log(`[collector] Refreshed ${cfg.key}: #${cycleId}, tokens=[${tokenIds[0].slice(0,8)}..., ${tokenIds[1].slice(0,8)}...], ends ${endDate.toISOString()}`);
   } catch (err) {
     console.error(`[collector] refreshMarket ${cfg.key}:`, err.message);
     state.active = false;
@@ -116,82 +111,91 @@ async function refreshMarket(cfg) {
   }
 }
 
-async function pollMarketPrice(cfg) {
-  const state = marketState.get(cfg.key);
-  if (!state?.active || !state.gammaMarketId) return;
-
-  const data = await fetchJSON(`${GAMMA}/markets/${state.gammaMarketId}`);
-  const outcomePrices = JSON.parse(data.outcomePrices);
-
-  const priceUp = parseFloat(outcomePrices[0]);
-  const priceDown = parseFloat(outcomePrices[1]);
-
-  return { priceUp, priceDown, bestBid: data.bestBid, bestAsk: data.bestAsk, closed: data.closed };
+async function fetchClobPrices(tokenPairs) {
+  const payload = [];
+  for (const { upId, downId } of tokenPairs) {
+    payload.push({ token_id: upId, side: 'BUY' });
+    payload.push({ token_id: downId, side: 'BUY' });
+  }
+  const res = await fetch(`${CLOB}/prices`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) throw new Error(`CLOB /prices HTTP ${res.status}`);
+  return res.json();
 }
 
 async function pollAllPrices() {
+  const pairs = [];
+  for (const cfg of MARKETS_CONFIG) {
+    const state = marketState.get(cfg.key);
+    if (!state?.active || !state.upTokenId) continue;
+    pairs.push({ key: cfg.key, upId: state.upTokenId, downId: state.downTokenId });
+  }
+  if (!pairs.length) return;
+
+  let clobData;
+  try {
+    clobData = await fetchClobPrices(pairs);
+  } catch (err) {
+    console.error('[collector] CLOB error:', err.message);
+    return;
+  }
+
   const now = new Date();
   const unixMs = now.getTime();
 
-  const results = await Promise.allSettled(
-    MARKETS_CONFIG.map(async cfg => {
-      const state = marketState.get(cfg.key);
-      if (!state?.active || !state.gammaMarketId) return null;
+  for (const cfg of MARKETS_CONFIG) {
+    const state = marketState.get(cfg.key);
+    if (!state?.active || !state.upTokenId) continue;
 
-      let priceData;
-      try {
-        priceData = await pollMarketPrice(cfg);
-      } catch (err) {
-        return null;
-      }
-      if (!priceData) return null;
+    const rawUp = clobData[state.upTokenId]?.BUY;
+    const rawDown = clobData[state.downTokenId]?.BUY;
 
-      state.priceUp = priceData.priceUp;
-      state.priceDown = priceData.priceDown;
+    if (rawUp == null && rawDown == null) continue;
 
-      const spread = priceData.bestAsk != null && priceData.bestBid != null
-        ? Math.round((priceData.bestAsk - priceData.bestBid) * 10000) / 10000
-        : 0;
+    const priceUp = parseFloat(rawUp) || 0;
+    const priceDown = parseFloat(rawDown) || 0;
+    const spread = Math.round((1 - priceUp - priceDown) * 10000) / 10000;
 
-      if (state.openingPriceUp === null) {
-        state.openingPriceUp = priceData.priceUp;
-      }
+    state.priceUp = priceUp;
+    state.priceDown = priceDown;
 
-      const endMs = new Date(state.cycleEnd).getTime();
-      const secondsRemaining = Math.max(0, Math.floor((endMs - unixMs) / 1000));
+    if (state.openingPriceUp === null) state.openingPriceUp = priceUp;
 
-      const tick = {
-        timestamp: now.toISOString(),
-        unix_ms: unixMs,
-        market: cfg.key,
-        cycle_id: state.cycleId,
-        cycle_start: state.cycleStart,
-        cycle_end: state.cycleEnd,
-        price_up: priceData.priceUp,
-        price_down: priceData.priceDown,
-        spread,
-        seconds_remaining: secondsRemaining,
-      };
+    const endMs = new Date(state.cycleEnd).getTime();
+    const secondsRemaining = Math.max(0, Math.floor((endMs - unixMs) / 1000));
 
-      try { await db.insertTick(tick); } catch (err) {
-        console.error(`[collector] insertTick ${cfg.key}:`, err.message);
-      }
+    const tick = {
+      timestamp: now.toISOString(),
+      unix_ms: unixMs,
+      market: cfg.key,
+      cycle_id: state.cycleId,
+      cycle_start: state.cycleStart,
+      cycle_end: state.cycleEnd,
+      price_up: priceUp,
+      price_down: priceDown,
+      spread,
+      seconds_remaining: secondsRemaining,
+    };
 
-      broadcast({ type: 'tick', data: tick });
+    try { await db.insertTick(tick); } catch (err) {
+      console.error(`[collector] insertTick ${cfg.key}:`, err.message);
+    }
 
-      if (secondsRemaining <= 0 && !state.resolving) {
-        resolveCycle(cfg, state);
-      }
+    broadcast({ type: 'tick', data: tick });
 
-      return tick;
-    })
-  );
+    if (secondsRemaining <= 0 && !state.resolving) {
+      resolveCycle(cfg, state);
+    }
+  }
 }
 
 async function resolveCycle(cfg, state) {
   if (state.resolving) return;
   state.resolving = true;
-  console.log(`[collector] Resolving cycle #${state.cycleId} for ${cfg.key}...`);
+  console.log(`[collector] Resolving #${state.cycleId} ${cfg.key}...`);
 
   let outcome = null;
   let attempts = 0;
@@ -210,7 +214,7 @@ async function resolveCycle(cfg, state) {
     } catch (e) {
       console.warn(`[collector] resolve poll ${cfg.key}:`, e.message);
     }
-    if (!outcome) await sleep(5000);
+    if (!outcome) await new Promise(r => setTimeout(r, 5000));
   }
 
   if (!outcome) {
@@ -248,8 +252,6 @@ async function resolveCycle(cfg, state) {
   await refreshMarket(cfg);
 }
 
-function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
-
 async function start() {
   console.log('[collector] Starting...');
   await Promise.allSettled(MARKETS_CONFIG.map(cfg => refreshMarket(cfg)));
@@ -274,8 +276,7 @@ function getStatus() {
   for (const cfg of MARKETS_CONFIG) {
     const state = marketState.get(cfg.key);
     if (!state) { result[cfg.key] = { active: false }; continue; }
-    const endMs = new Date(state.cycleEnd).getTime();
-    const secondsRemaining = Math.max(0, Math.floor((endMs - Date.now()) / 1000));
+    const secondsRemaining = Math.max(0, Math.floor((new Date(state.cycleEnd).getTime() - Date.now()) / 1000));
     result[cfg.key] = {
       active: state.active,
       cycleId: state.cycleId,
