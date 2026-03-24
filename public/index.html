@@ -7,7 +7,6 @@
 <script src="https://cdn.jsdelivr.net/npm/luxon@3.4.4/build/global/luxon.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-luxon@1.3.1/dist/chartjs-adapter-luxon.umd.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-streaming@2.0.0/dist/chartjs-plugin-streaming.umd.min.js"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
@@ -21,20 +20,21 @@ a{color:var(--green);text-decoration:none}
 
 .header{padding:16px 20px;display:flex;align-items:center;gap:16px;border-bottom:1px solid var(--border)}
 .header h1{font-size:16px;font-weight:600;color:#fff}
-.header .status{margin-left:auto;font-size:11px;color:var(--text-dim)}
-.header .dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px;background:var(--red);vertical-align:middle}
-.header .dot.connected{background:var(--green)}
+.header .status{margin-left:auto;font-size:11px;color:var(--text-dim);display:flex;align-items:center;gap:6px}
+.dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--red)}
+.dot.connected{background:var(--green)}
+.tick-counter{margin-left:12px;color:var(--text-dim)}
 
 .cards{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;padding:16px 20px}
 @media(max-width:900px){.cards{grid-template-columns:repeat(2,1fr)}}
-.card{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:16px;position:relative;overflow:hidden;transition:border-color .3s}
+.card{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:16px;transition:border-color .3s}
 .card.up-dominant{border-color:rgba(0,229,160,.35)}
 .card.down-dominant{border-color:rgba(248,81,73,.35)}
 .card-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}
 .card-title{font-size:13px;font-weight:600;color:#fff}
 .card-cycle{font-size:11px;color:var(--text-dim)}
 .bar-row{display:flex;align-items:center;gap:8px;margin-bottom:6px;font-size:12px}
-.bar-label{width:40px;font-weight:500}
+.bar-label{width:44px;font-weight:500}
 .bar-label.up{color:var(--green)}
 .bar-label.down{color:var(--yellow)}
 .bar-track{flex:1;height:8px;background:#1e2530;border-radius:4px;overflow:hidden}
@@ -42,23 +42,23 @@ a{color:var(--green);text-decoration:none}
 .bar-fill.up{background:var(--green)}
 .bar-fill.down{background:var(--yellow)}
 .bar-pct{width:40px;text-align:right;font-size:12px;color:var(--text-dim)}
-.card-timer{text-align:center;font-size:20px;font-weight:700;color:#fff;margin-top:10px;font-variant-numeric:tabular-nums}
+.card-timer{text-align:center;font-size:22px;font-weight:700;color:#fff;margin-top:10px;font-variant-numeric:tabular-nums}
 .card-timer .label{font-size:10px;color:var(--text-dim);font-weight:400}
 
-.tabs-row{display:flex;gap:4px;padding:0 20px;margin-top:4px}
+.tabs-row{display:flex;gap:4px;padding:0 20px;margin-top:8px}
 .tab{padding:8px 16px;font-size:12px;font-weight:500;border:1px solid var(--border);border-bottom:none;border-radius:8px 8px 0 0;cursor:pointer;color:var(--text-dim);background:transparent;transition:all .2s}
 .tab:hover{color:var(--text)}
 .tab.active{background:var(--chart-bg);color:#fff;border-color:var(--border)}
 
-.chart-container{margin:0 20px;background:var(--chart-bg);border:1px solid var(--border);border-radius:0 8px 8px 8px;padding:12px;position:relative;height:380px}
-.chart-legend{position:absolute;top:12px;left:20px;display:flex;gap:16px;z-index:2;font-size:11px}
+.chart-wrap{margin:0 20px;background:var(--chart-bg);border:1px solid var(--border);border-radius:0 8px 8px 8px;padding:16px 16px 12px 16px;position:relative;height:400px}
+.chart-legend{position:absolute;top:16px;left:24px;display:flex;gap:16px;z-index:2;font-size:11px}
 .chart-legend span{display:flex;align-items:center;gap:5px}
-.chart-legend .swatch{width:12px;height:3px;border-radius:2px}
+.chart-legend .sw{width:14px;height:3px;border-radius:2px}
 
-.badge-container{position:absolute;right:20px;top:0;bottom:0;width:60px;display:flex;flex-direction:column;justify-content:center;gap:8px;z-index:2;pointer-events:none}
-.price-badge{padding:3px 8px;border-radius:4px;font-size:11px;font-weight:700;text-align:center;color:#0d1117}
-.price-badge.up{background:var(--green)}
-.price-badge.down{background:var(--yellow)}
+.badge-wrap{position:absolute;right:12px;top:50%;transform:translateY(-50%);display:flex;flex-direction:column;gap:6px;z-index:2;pointer-events:none}
+.price-badge{padding:3px 8px;border-radius:4px;font-size:11px;font-weight:700;text-align:center;color:#0d1117;min-width:52px}
+.price-badge.up-b{background:var(--green)}
+.price-badge.down-b{background:var(--yellow)}
 
 .controls{display:flex;gap:12px;padding:12px 20px;align-items:center;flex-wrap:wrap}
 .controls label{font-size:11px;color:var(--text-dim)}
@@ -67,7 +67,7 @@ a{color:var(--green);text-decoration:none}
 .controls .export-btn{background:rgba(0,229,160,.1);border-color:rgba(0,229,160,.3);color:var(--green)}
 .controls .export-btn:hover{background:rgba(0,229,160,.2)}
 
-.table-wrap{margin:16px 20px;background:var(--card);border:1px solid var(--border);border-radius:10px;overflow:hidden;max-height:360px;overflow-y:auto}
+.table-wrap{margin:16px 20px 24px;background:var(--card);border:1px solid var(--border);border-radius:10px;overflow:hidden;max-height:360px;overflow-y:auto}
 .table-wrap h3{padding:12px 16px;font-size:13px;border-bottom:1px solid var(--border);position:sticky;top:0;background:var(--card);z-index:1}
 table{width:100%;border-collapse:collapse;font-size:12px}
 thead{position:sticky;top:40px;background:var(--card);z-index:1}
@@ -87,44 +87,41 @@ tr.clickable:hover{background:rgba(0,229,160,.05)}
 
 <div class="header">
   <h1>Polymarket Collector</h1>
-  <div class="status"><span class="dot" id="wsDot"></span><span id="wsLabel">Connecting...</span></div>
+  <div class="status">
+    <span class="dot" id="wsDot"></span>
+    <span id="wsLabel">Connecting...</span>
+    <span class="tick-counter" id="tickCounter"></span>
+  </div>
 </div>
 
 <div class="cards" id="cards"></div>
 
 <div class="tabs-row" id="tabs"></div>
-<div class="chart-container">
+<div class="chart-wrap">
   <div class="chart-legend">
-    <span><span class="swatch" style="background:var(--green)"></span>YES / UP</span>
-    <span><span class="swatch" style="background:var(--yellow)"></span>NO / DOWN</span>
+    <span><span class="sw" style="background:var(--green)"></span>YES / UP</span>
+    <span><span class="sw" style="background:var(--yellow)"></span>NO / DOWN</span>
   </div>
-  <div class="badge-container">
-    <div class="price-badge up" id="badgeUp">—</div>
-    <div class="price-badge down" id="badgeDown">—</div>
+  <div class="badge-wrap">
+    <div class="price-badge up-b" id="badgeUp">--</div>
+    <div class="price-badge down-b" id="badgeDown">--</div>
   </div>
   <canvas id="mainChart"></canvas>
 </div>
 
 <div class="controls">
-  <label>Duration:
+  <label>Window:
     <select id="durationSel">
-      <option value="60000">1 min</option>
-      <option value="300000" selected>5 min</option>
-      <option value="900000">15 min</option>
-      <option value="3600000">1 hour</option>
-    </select>
-  </label>
-  <label>Scale:
-    <select id="scaleSel">
-      <option value="1000">1 px/sec</option>
-      <option value="5000" selected>5 px/sec</option>
-      <option value="10000">10 px/sec</option>
+      <option value="60">1 min</option>
+      <option value="300" selected>5 min</option>
+      <option value="900">15 min</option>
+      <option value="3600">1 hour</option>
     </select>
   </label>
   <span style="flex:1"></span>
-  <button class="export-btn" onclick="exportData('ticks')">Export Ticks JSON</button>
-  <button class="export-btn" onclick="exportData('cycles')">Export Cycles JSON</button>
-  <button class="export-btn" onclick="exportData('csv')">Export CSV</button>
+  <button class="export-btn" onclick="doExport('ticks')">Export Ticks JSON</button>
+  <button class="export-btn" onclick="doExport('cycles')">Export Cycles JSON</button>
+  <button class="export-btn" onclick="doExport('csv')">Export CSV</button>
 </div>
 
 <div class="table-wrap">
@@ -138,18 +135,21 @@ tr.clickable:hover{background:rgba(0,229,160,.05)}
 <script>
 const MARKETS = ['BTC_15MIN','BTC_1HOUR','ETH_15MIN','ETH_1HOUR'];
 let activeTab = MARKETS[0];
-let ws = null;
 let chart = null;
-let chartDatasets = {};
-let cycleMarkers = {};
-let statusData = {};
+let ws = null;
+let tickCount = 0;
+const chartData = {};
+const markers = {};
+const status = {};
+MARKETS.forEach(m => { chartData[m] = {up:[], down:[]}; markers[m] = []; });
 
-MARKETS.forEach(m => { chartDatasets[m] = { up: [], down: [] }; cycleMarkers[m] = []; });
+/* ═══ WEBSOCKET ═══ */
+function connectWS(){
+  try {
+    const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+    ws = new WebSocket(proto + '://' + location.host);
+  } catch(e){ console.error('WS create error', e); setTimeout(connectWS, 3000); return; }
 
-/* ─── WebSocket ─── */
-function connectWS() {
-  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-  ws = new WebSocket(`${proto}://${location.host}`);
   ws.onopen = () => {
     document.getElementById('wsDot').classList.add('connected');
     document.getElementById('wsLabel').textContent = 'Live';
@@ -159,134 +159,116 @@ function connectWS() {
     document.getElementById('wsLabel').textContent = 'Reconnecting...';
     setTimeout(connectWS, 2000);
   };
-  ws.onmessage = (e) => {
-    const msg = JSON.parse(e.data);
-    if (msg.type === 'status') {
-      statusData = msg.data;
-      updateCards();
-    } else if (msg.type === 'tick') {
-      handleTick(msg.data);
-    } else if (msg.type === 'cycle_close') {
-      handleCycleClose(msg.data);
-    }
+  ws.onerror = () => {};
+  ws.onmessage = (ev) => {
+    try {
+      const msg = JSON.parse(ev.data);
+      if(msg.type === 'status'){
+        Object.assign(status, msg.data);
+        updateCards();
+      } else if(msg.type === 'tick'){
+        onTick(msg.data);
+      } else if(msg.type === 'cycle_close'){
+        onCycleClose(msg.data);
+      }
+    } catch(e){ console.warn('WS msg error', e); }
   };
 }
 
-function handleTick(tick) {
-  const m = tick.market;
-  if (!chartDatasets[m]) return;
-  const t = new Date(tick.timestamp).getTime();
-  chartDatasets[m].up.push({ x: t, y: tick.price_up });
-  chartDatasets[m].down.push({ x: t, y: tick.price_down });
+function onTick(t){
+  const m = t.market;
+  if(!chartData[m]) return;
+  const ts = new Date(t.timestamp).getTime();
+  chartData[m].up.push({x:ts, y:Number(t.price_up)});
+  chartData[m].down.push({x:ts, y:Number(t.price_down)});
 
-  if (!statusData[m]) statusData[m] = {};
-  Object.assign(statusData[m], {
-    priceUp: tick.price_up,
-    priceDown: tick.price_down,
-    secondsRemaining: tick.seconds_remaining,
-    cycleId: tick.cycle_id,
-    cycleStart: tick.cycle_start,
-    cycleEnd: tick.cycle_end,
-    active: true,
-  });
+  if(!status[m]) status[m] = {};
+  status[m].priceUp = Number(t.price_up);
+  status[m].priceDown = Number(t.price_down);
+  status[m].secondsRemaining = t.seconds_remaining;
+  status[m].cycleId = t.cycle_id;
+  status[m].active = true;
+
+  tickCount++;
+  document.getElementById('tickCounter').textContent = tickCount + ' ticks';
   updateCards();
-
-  if (m === activeTab && chart) {
-    chart.update('quiet');
-    updateBadges(tick.price_up, tick.price_down);
-  }
+  if(m === activeTab) refreshChart();
 }
 
-function handleCycleClose(cycle) {
-  cycleMarkers[cycle.market].push({
-    time: new Date(cycle.cycle_end).getTime(),
-    outcome: cycle.outcome,
-    cycleId: cycle.cycle_id,
+function onCycleClose(c){
+  markers[c.market].push({
+    time: new Date(c.cycle_end).getTime(),
+    outcome: c.outcome,
+    id: c.cycle_id,
   });
-  addCycleRow(cycle);
-  if (cycle.market === activeTab && chart) chart.update('quiet');
+  addCycleRow(c);
+  if(c.market === activeTab && chart) chart.update('none');
 }
 
-/* ─── Cards ─── */
-function renderCards() {
-  const container = document.getElementById('cards');
-  container.innerHTML = MARKETS.map(m => `
+/* ═══ CARDS ═══ */
+function renderCards(){
+  document.getElementById('cards').innerHTML = MARKETS.map(m => `
     <div class="card" id="card-${m}">
       <div class="card-header">
         <span class="card-title">${m.replace('_',' ')}</span>
-        <span class="card-cycle" id="cycle-${m}">—</span>
+        <span class="card-cycle" id="cyc-${m}">--</span>
       </div>
       <div class="bar-row">
         <span class="bar-label up">UP</span>
-        <div class="bar-track"><div class="bar-fill up" id="barUp-${m}" style="width:50%"></div></div>
-        <span class="bar-pct" id="pctUp-${m}">—</span>
+        <div class="bar-track"><div class="bar-fill up" id="bU-${m}" style="width:50%"></div></div>
+        <span class="bar-pct" id="pU-${m}">--</span>
       </div>
       <div class="bar-row">
         <span class="bar-label down">DOWN</span>
-        <div class="bar-track"><div class="bar-fill down" id="barDown-${m}" style="width:50%"></div></div>
-        <span class="bar-pct" id="pctDown-${m}">—</span>
+        <div class="bar-track"><div class="bar-fill down" id="bD-${m}" style="width:50%"></div></div>
+        <span class="bar-pct" id="pD-${m}">--</span>
       </div>
-      <div class="card-timer"><div class="label">Remaining</div><span id="timer-${m}">--:--</span></div>
-    </div>
-  `).join('');
+      <div class="card-timer"><div class="label">Remaining</div><span id="tmr-${m}">--:--</span></div>
+    </div>`).join('');
 }
 
-function updateCards() {
+function updateCards(){
   MARKETS.forEach(m => {
-    const s = statusData[m];
-    if (!s) return;
-    const card = document.getElementById(`card-${m}`);
-    if (!card) return;
-
-    const up = s.priceUp != null ? s.priceUp : 0.5;
-    const down = s.priceDown != null ? s.priceDown : 0.5;
-    const upPct = Math.round(up * 100);
-    const downPct = Math.round(down * 100);
-
-    document.getElementById(`pctUp-${m}`).textContent = upPct + '%';
-    document.getElementById(`pctDown-${m}`).textContent = downPct + '%';
-    document.getElementById(`barUp-${m}`).style.width = upPct + '%';
-    document.getElementById(`barDown-${m}`).style.width = downPct + '%';
-    document.getElementById(`cycle-${m}`).textContent = s.cycleId ? `Cycle #${s.cycleId}` : '—';
-
+    const s = status[m];
+    if(!s || !s.active) return;
+    const up = s.priceUp ?? 0.5, dn = s.priceDown ?? 0.5;
+    const uP = Math.round(up*100), dP = Math.round(dn*100);
+    const el = id => document.getElementById(id);
+    el('pU-'+m).textContent = uP+'%';
+    el('pD-'+m).textContent = dP+'%';
+    el('bU-'+m).style.width = uP+'%';
+    el('bD-'+m).style.width = dP+'%';
+    el('cyc-'+m).textContent = s.cycleId ? 'Cycle #'+s.cycleId : '--';
+    const card = el('card-'+m);
     card.classList.toggle('up-dominant', up > 0.6);
-    card.classList.toggle('down-dominant', down > 0.6);
-
-    const sec = s.secondsRemaining != null ? s.secondsRemaining : 0;
-    const mm = String(Math.floor(sec / 60)).padStart(2, '0');
-    const ss = String(sec % 60).padStart(2, '0');
-    document.getElementById(`timer-${m}`).textContent = `${mm}:${ss}`;
+    card.classList.toggle('down-dominant', dn > 0.6);
+    const sec = s.secondsRemaining ?? 0;
+    el('tmr-'+m).textContent = String(Math.floor(sec/60)).padStart(2,'0')+':'+String(sec%60).padStart(2,'0');
   });
 }
 
-setInterval(() => {
+setInterval(()=>{
   MARKETS.forEach(m => {
-    const s = statusData[m];
-    if (!s || s.secondsRemaining == null) return;
-    if (s.secondsRemaining > 0) s.secondsRemaining--;
+    const s = status[m]; if(!s || s.secondsRemaining == null) return;
+    if(s.secondsRemaining > 0) s.secondsRemaining--;
   });
   updateCards();
 }, 1000);
 
-/* ─── Tabs ─── */
-function renderTabs() {
-  const container = document.getElementById('tabs');
-  container.innerHTML = MARKETS.map(m =>
-    `<div class="tab${m === activeTab ? ' active' : ''}" data-market="${m}">${m.replace('_',' ')}</div>`
+/* ═══ TABS ═══ */
+function renderTabs(){
+  const c = document.getElementById('tabs');
+  c.innerHTML = MARKETS.map(m =>
+    `<div class="tab${m===activeTab?' active':''}" data-m="${m}">${m.replace('_',' ')}</div>`
   ).join('');
-  container.querySelectorAll('.tab').forEach(tab => {
-    tab.addEventListener('click', () => {
-      activeTab = tab.dataset.market;
-      renderTabs();
-      switchChart();
-    });
-  });
+  c.querySelectorAll('.tab').forEach(t => t.onclick = ()=>{ activeTab=t.dataset.m; renderTabs(); switchChart(); });
 }
 
-/* ─── Chart ─── */
-function buildChart() {
+/* ═══ CHART ═══ */
+function buildChart(){
   const ctx = document.getElementById('mainChart').getContext('2d');
-  const duration = parseInt(document.getElementById('durationSel').value);
+  const windowSec = parseInt(document.getElementById('durationSel').value);
+  const now = Date.now();
 
   chart = new Chart(ctx, {
     type: 'line',
@@ -299,8 +281,8 @@ function buildChart() {
           borderWidth: 1.5,
           pointRadius: 0,
           tension: 0.3,
-          fill: { target: { value: 0.5 }, above: 'rgba(0,229,160,0.06)', below: 'transparent' },
-          data: chartDatasets[activeTab].up,
+          fill: {target:{value:0.5}, above:'rgba(0,229,160,0.06)', below:'transparent'},
+          data: chartData[activeTab].up,
         },
         {
           label: 'NO / DOWN',
@@ -310,7 +292,7 @@ function buildChart() {
           pointRadius: 0,
           tension: 0.3,
           fill: false,
-          data: chartDatasets[activeTab].down,
+          data: chartData[activeTab].down,
         },
       ],
     },
@@ -318,241 +300,195 @@ function buildChart() {
       responsive: true,
       maintainAspectRatio: false,
       animation: false,
-      interaction: { mode: 'index', intersect: false },
+      interaction: {mode:'index', intersect:false},
       plugins: {
-        legend: { display: false },
-        streaming: { frameRate: 15 },
+        legend: {display:false},
         tooltip: {
-          backgroundColor: '#161b22',
-          borderColor: '#21262d',
-          borderWidth: 1,
-          titleFont: { family: 'monospace', size: 11 },
-          bodyFont: { family: 'monospace', size: 11 },
+          backgroundColor:'#161b22', borderColor:'#21262d', borderWidth:1,
+          titleFont:{family:'monospace',size:11}, bodyFont:{family:'monospace',size:11},
           callbacks: {
-            title(items) {
-              if (!items.length) return '';
-              return new Date(items[0].parsed.x).toLocaleTimeString();
-            },
-            label(item) {
-              return `${item.dataset.label}: ${item.parsed.y.toFixed(3)}`;
-            },
+            title(items){ return items.length ? new Date(items[0].parsed.x).toLocaleTimeString() : ''; },
+            label(item){ return item.dataset.label+': '+item.parsed.y.toFixed(3); },
           },
         },
       },
       scales: {
         x: {
-          type: 'realtime',
-          realtime: {
-            duration: duration,
-            refresh: 1000,
-            delay: 500,
-            pause: false,
-            ttl: duration * 5,
-          },
-          ticks: { color: '#4a5568', font: { family: 'monospace', size: 11 }, maxRotation: 0 },
-          grid: { color: 'transparent' },
+          type: 'time',
+          min: now - windowSec*1000,
+          max: now,
+          time: {tooltipFormat:'HH:mm:ss', displayFormats:{second:'HH:mm:ss', minute:'HH:mm'}},
+          ticks: {color:'#4a5568', font:{family:'monospace',size:11}, maxRotation:0, autoSkipPadding:30},
+          grid: {color:'transparent'},
         },
         y: {
-          min: 0, max: 1,
-          ticks: {
-            stepSize: 0.1,
-            color: '#4a5568',
-            font: { family: 'monospace', size: 11 },
-            callback: v => v.toFixed(1),
-          },
-          grid: { color: '#1e2530' },
+          min:0, max:1,
+          ticks: {stepSize:0.1, color:'#4a5568', font:{family:'monospace',size:11}, callback:v=>v.toFixed(1)},
+          grid: {color:'#1e2530'},
         },
       },
     },
     plugins: [{
-      id: 'midline',
-      beforeDraw(c) {
-        const yScale = c.scales.y;
-        const ctx = c.ctx;
-        const y = yScale.getPixelForValue(0.5);
-        ctx.save();
-        ctx.strokeStyle = '#2d3748';
-        ctx.setLineDash([6, 4]);
-        ctx.globalAlpha = 0.5;
-        ctx.beginPath();
-        ctx.moveTo(c.chartArea.left, y);
-        ctx.lineTo(c.chartArea.right, y);
-        ctx.stroke();
-        ctx.restore();
+      id:'midline',
+      beforeDraw(c){
+        const y = c.scales.y.getPixelForValue(0.5);
+        c.ctx.save(); c.ctx.strokeStyle='#2d3748'; c.ctx.setLineDash([6,4]); c.ctx.globalAlpha=0.5;
+        c.ctx.beginPath(); c.ctx.moveTo(c.chartArea.left,y); c.ctx.lineTo(c.chartArea.right,y); c.ctx.stroke();
+        c.ctx.restore();
       },
-    }, {
-      id: 'cycleLines',
-      beforeDraw(c) {
-        const markers = cycleMarkers[activeTab] || [];
-        const xScale = c.scales.x;
-        const ctx2 = c.ctx;
-        ctx2.save();
-        markers.forEach(mk => {
-          const x = xScale.getPixelForValue(mk.time);
-          if (x < c.chartArea.left || x > c.chartArea.right) return;
-          ctx2.strokeStyle = '#2d3748';
-          ctx2.setLineDash([4, 4]);
-          ctx2.beginPath();
-          ctx2.moveTo(x, c.chartArea.top);
-          ctx2.lineTo(x, c.chartArea.bottom);
-          ctx2.stroke();
-
-          ctx2.setLineDash([]);
-          ctx2.fillStyle = mk.outcome === 'UP' ? '#00e5a0' : '#f85149';
-          ctx2.font = '10px monospace';
-          ctx2.textAlign = 'center';
-          ctx2.fillText(`${mk.outcome} #${mk.cycleId}`, x, c.chartArea.top + 12);
-
-          ctx2.beginPath();
-          ctx2.moveTo(x - 4, c.chartArea.top + 16);
-          ctx2.lineTo(x + 4, c.chartArea.top + 16);
-          ctx2.lineTo(x, c.chartArea.top + 22);
-          ctx2.closePath();
-          ctx2.fill();
+    },{
+      id:'cycleLines',
+      beforeDraw(ch){
+        const mk = markers[activeTab]||[];
+        const xs = ch.scales.x, ct = ch.ctx;
+        ct.save();
+        mk.forEach(m=>{
+          const x = xs.getPixelForValue(m.time);
+          if(x < ch.chartArea.left || x > ch.chartArea.right) return;
+          ct.strokeStyle='#2d3748'; ct.setLineDash([4,4]);
+          ct.beginPath(); ct.moveTo(x,ch.chartArea.top); ct.lineTo(x,ch.chartArea.bottom); ct.stroke();
+          ct.setLineDash([]);
+          ct.fillStyle = m.outcome==='UP' ? '#00e5a0' : '#f85149';
+          ct.font='10px monospace'; ct.textAlign='center';
+          ct.fillText(m.outcome+' #'+m.id, x, ch.chartArea.top+12);
+          ct.beginPath(); ct.moveTo(x-4,ch.chartArea.top+16); ct.lineTo(x+4,ch.chartArea.top+16); ct.lineTo(x,ch.chartArea.top+22); ct.closePath(); ct.fill();
         });
-        ctx2.restore();
+        ct.restore();
       },
-    }, {
-      id: 'crosshair',
-      afterEvent(c, args) {
-        c._crosshairX = args.event.type === 'mousemove' ? args.event.x : null;
-      },
-      beforeDraw(c) {
-        if (!c._crosshairX) return;
-        const ctx2 = c.ctx;
-        const x = c._crosshairX;
-        if (x < c.chartArea.left || x > c.chartArea.right) return;
-        ctx2.save();
-        ctx2.strokeStyle = '#2d3748';
-        ctx2.setLineDash([3, 3]);
-        ctx2.beginPath();
-        ctx2.moveTo(x, c.chartArea.top);
-        ctx2.lineTo(x, c.chartArea.bottom);
-        ctx2.stroke();
-        ctx2.restore();
+    },{
+      id:'crosshair',
+      afterEvent(c,args){ c._chX = args.event.type==='mousemove' ? args.event.x : null; },
+      beforeDraw(c){
+        if(!c._chX) return;
+        const x=c._chX; if(x<c.chartArea.left||x>c.chartArea.right) return;
+        c.ctx.save(); c.ctx.strokeStyle='#2d3748'; c.ctx.setLineDash([3,3]);
+        c.ctx.beginPath(); c.ctx.moveTo(x,c.chartArea.top); c.ctx.lineTo(x,c.chartArea.bottom); c.ctx.stroke();
+        c.ctx.restore();
       },
     }],
   });
 }
 
-function switchChart() {
-  if (!chart) return;
-  chart.data.datasets[0].data = chartDatasets[activeTab].up;
-  chart.data.datasets[1].data = chartDatasets[activeTab].down;
-  chart.update('quiet');
-  const s = statusData[activeTab];
-  if (s) updateBadges(s.priceUp, s.priceDown);
-  else updateBadges(null, null);
+let autoScroll = true;
+
+function refreshChart(){
+  if(!chart) return;
+  const s = status[activeTab];
+  if(s){
+    document.getElementById('badgeUp').textContent = s.priceUp!=null ? s.priceUp.toFixed(3) : '--';
+    document.getElementById('badgeDown').textContent = s.priceDown!=null ? s.priceDown.toFixed(3) : '--';
+  }
+  if(autoScroll){
+    const windowSec = parseInt(document.getElementById('durationSel').value);
+    const now = Date.now();
+    chart.options.scales.x.min = now - windowSec*1000;
+    chart.options.scales.x.max = now;
+  }
+  chart.update('none');
 }
 
-function updateBadges(up, down) {
-  document.getElementById('badgeUp').textContent = up != null ? up.toFixed(3) : '—';
-  document.getElementById('badgeDown').textContent = down != null ? down.toFixed(3) : '—';
+function switchChart(){
+  if(!chart) return;
+  chart.data.datasets[0].data = chartData[activeTab].up;
+  chart.data.datasets[1].data = chartData[activeTab].down;
+  autoScroll = true;
+  refreshChart();
 }
 
-document.getElementById('durationSel').addEventListener('change', (e) => {
-  if (!chart) return;
-  const d = parseInt(e.target.value);
-  chart.options.scales.x.realtime.duration = d;
-  chart.options.scales.x.realtime.ttl = d * 5;
-  chart.update('quiet');
+document.getElementById('durationSel').addEventListener('change', ()=>{ autoScroll=true; refreshChart(); });
+
+document.getElementById('mainChart').addEventListener('wheel', (e)=>{
+  if(!chart) return;
+  e.preventDefault();
+  autoScroll = false;
+  const shift = e.deltaY > 0 ? -10000 : 10000;
+  chart.options.scales.x.min += shift;
+  chart.options.scales.x.max += shift;
+  chart.update('none');
 });
 
-document.getElementById('scaleSel').addEventListener('change', (e) => {
-  if (!chart) return;
-  chart.options.scales.x.realtime.refresh = parseInt(e.target.value);
-  chart.update('quiet');
-});
+document.getElementById('mainChart').addEventListener('dblclick', ()=>{ autoScroll=true; refreshChart(); });
 
-/* ─── Cycles Table ─── */
-function addCycleRow(c) {
+setInterval(()=>{ if(autoScroll && chart) refreshChart(); }, 1000);
+
+/* ═══ CYCLES TABLE ═══ */
+function addCycleRow(c){
   const tbody = document.getElementById('cyclesTbody');
   const tr = document.createElement('tr');
   tr.className = 'clickable';
-  tr.addEventListener('click', () => {
-    activeTab = c.market;
-    renderTabs();
-    switchChart();
-    const t = new Date(c.cycle_start).getTime();
-    if (chart) {
-      chart.options.scales.x.realtime.pause = true;
-      chart.options.scales.x.min = t - 10000;
-      chart.options.scales.x.max = new Date(c.cycle_end).getTime() + 10000;
-      chart.update('quiet');
-      setTimeout(() => {
-        delete chart.options.scales.x.min;
-        delete chart.options.scales.x.max;
-        chart.options.scales.x.realtime.pause = false;
-        chart.update('quiet');
-      }, 8000);
-    }
-  });
-  const fmtT = (iso) => { if (!iso) return '—'; const d = new Date(iso); return d.toLocaleTimeString() + ' ' + d.toLocaleDateString('ru',{day:'numeric',month:'short'}); };
-  const fmtP = (v) => v != null ? Math.round(v * 100) + '%' : '—';
-  const outcomeClass = c.outcome === 'UP' ? 'outcome-up' : 'outcome-down';
-  const outcomeIcon = c.outcome === 'UP' ? '✅' : '❌';
-  tr.innerHTML = `
-    <td>${c.cycle_id}</td>
-    <td>${c.market}</td>
-    <td>${fmtT(c.cycle_start)}</td>
-    <td>${fmtT(c.cycle_end)}</td>
-    <td>${fmtP(c.opening_price_up)}</td>
-    <td>${fmtP(c.final_price_up)}</td>
-    <td class="${outcomeClass}">${outcomeIcon} ${c.outcome}</td>
-    <td>${c.total_ticks || '—'}</td>
-  `;
+  tr.onclick = ()=>{
+    activeTab = c.market; renderTabs();
+    chart.data.datasets[0].data = chartData[activeTab].up;
+    chart.data.datasets[1].data = chartData[activeTab].down;
+    const t0 = new Date(c.cycle_start).getTime(), t1 = new Date(c.cycle_end).getTime();
+    autoScroll = false;
+    chart.options.scales.x.min = t0 - 5000;
+    chart.options.scales.x.max = t1 + 5000;
+    chart.update('none');
+    setTimeout(()=>{ autoScroll=true; }, 8000);
+  };
+  const fmtT = iso => { if(!iso) return '--'; const d=new Date(iso); return d.toLocaleTimeString()+' '+d.toLocaleDateString('ru',{day:'numeric',month:'short'}); };
+  const fmtP = v => v!=null ? Math.round(Number(v)*100)+'%' : '--';
+  const cls = c.outcome==='UP' ? 'outcome-up' : 'outcome-down';
+  const ico = c.outcome==='UP' ? '✅' : '❌';
+  tr.innerHTML = `<td>${c.cycle_id}</td><td>${c.market}</td><td>${fmtT(c.cycle_start)}</td><td>${fmtT(c.cycle_end)}</td><td>${fmtP(c.opening_price_up)}</td><td>${fmtP(c.final_price_up)}</td><td class="${cls}">${ico} ${c.outcome}</td><td>${c.total_ticks||'--'}</td>`;
   tbody.prepend(tr);
 }
 
-async function loadHistory() {
-  try {
-    const res = await fetch('/api/cycles');
-    const cycles = await res.json();
-    cycles.forEach(c => addCycleRow(c));
-  } catch (e) {
-    console.warn('Failed to load cycle history:', e);
-  }
+/* ═══ LOAD HISTORY ═══ */
+async function loadHistory(){
+  try { const r = await fetch('/api/cycles'); (await r.json()).forEach(c => addCycleRow(c)); } catch(e){ console.warn('cycles load err',e); }
 }
 
-async function loadRecentTicks() {
-  for (const m of MARKETS) {
+async function loadTicks(){
+  for(const m of MARKETS){
     try {
-      const res = await fetch(`/api/ticks?market=${m}&limit=1800`);
-      const ticks = await res.json();
-      ticks.forEach(t => {
+      const r = await fetch('/api/ticks?market='+m+'&limit=3600');
+      const ticks = await r.json();
+      ticks.forEach(t=>{
         const ts = new Date(t.timestamp).getTime();
-        chartDatasets[m].up.push({ x: ts, y: parseFloat(t.price_up) });
-        chartDatasets[m].down.push({ x: ts, y: parseFloat(t.price_down) });
+        chartData[m].up.push({x:ts, y:Number(t.price_up)});
+        chartData[m].down.push({x:ts, y:Number(t.price_down)});
       });
-    } catch (e) {
-      console.warn(`Failed to load ticks for ${m}:`, e);
-    }
+      if(ticks.length && !status[m]){
+        const last = ticks[ticks.length-1];
+        status[m] = { active:true, priceUp:Number(last.price_up), priceDown:Number(last.price_down), secondsRemaining:last.seconds_remaining, cycleId:last.cycle_id };
+      }
+    } catch(e){ console.warn('ticks load err '+m, e); }
   }
-  if (chart) chart.update('quiet');
+  updateCards();
+  if(chart) chart.update('none');
 }
 
-/* ─── Export ─── */
-function exportData(type) {
-  const urls = {
-    ticks: '/api/export/ticks.json',
-    cycles: '/api/export/cycles.json',
-    csv: '/api/export/cycles.csv',
-  };
-  const a = document.createElement('a');
-  a.href = urls[type];
-  a.download = '';
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
+/* ═══ EXPORT ═══ */
+function doExport(type){
+  const map = {ticks:'/api/export/ticks.json', cycles:'/api/export/cycles.json', csv:'/api/export/cycles.csv'};
+  const a = document.createElement('a'); a.href=map[type]; a.download=''; document.body.appendChild(a); a.click(); a.remove();
 }
 
-/* ─── Init ─── */
+/* ═══ FALLBACK: poll REST if WS never connects ═══ */
+let lastWsOpen = 0;
+setInterval(async ()=>{
+  if(ws && ws.readyState === 1) { lastWsOpen = Date.now(); return; }
+  if(Date.now() - lastWsOpen < 5000) return;
+  try {
+    const r = await fetch('/api/status');
+    const d = await r.json();
+    Object.keys(d).forEach(m => {
+      if(!status[m]) status[m] = {};
+      Object.assign(status[m], d[m]);
+    });
+    updateCards();
+  } catch(e){}
+}, 3000);
+
+/* ═══ INIT ═══ */
 renderCards();
 renderTabs();
 buildChart();
 connectWS();
 loadHistory();
-loadRecentTicks();
+loadTicks();
 </script>
 </body>
 </html>
