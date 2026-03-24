@@ -1,0 +1,558 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Polymarket Trading Data Collector</title>
+<script src="https://cdn.jsdelivr.net/npm/luxon@3.4.4/build/global/luxon.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-luxon@1.3.1/dist/chartjs-adapter-luxon.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-streaming@2.0.0/dist/chartjs-plugin-streaming.umd.min.js"></script>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{
+  --bg:#0d1117;--card:#161b22;--chart-bg:#111820;
+  --border:#21262d;--text:#c9d1d9;--text-dim:#4a5568;
+  --green:#00e5a0;--yellow:#f5c842;--red:#f85149;
+  --grid:#1e2530;--line:#2d3748;
+}
+body{background:var(--bg);color:var(--text);font-family:'SF Mono','Cascadia Code','Fira Code',monospace;font-size:13px;overflow-x:hidden}
+a{color:var(--green);text-decoration:none}
+
+.header{padding:16px 20px;display:flex;align-items:center;gap:16px;border-bottom:1px solid var(--border)}
+.header h1{font-size:16px;font-weight:600;color:#fff}
+.header .status{margin-left:auto;font-size:11px;color:var(--text-dim)}
+.header .dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px;background:var(--red);vertical-align:middle}
+.header .dot.connected{background:var(--green)}
+
+.cards{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;padding:16px 20px}
+@media(max-width:900px){.cards{grid-template-columns:repeat(2,1fr)}}
+.card{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:16px;position:relative;overflow:hidden;transition:border-color .3s}
+.card.up-dominant{border-color:rgba(0,229,160,.35)}
+.card.down-dominant{border-color:rgba(248,81,73,.35)}
+.card-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}
+.card-title{font-size:13px;font-weight:600;color:#fff}
+.card-cycle{font-size:11px;color:var(--text-dim)}
+.bar-row{display:flex;align-items:center;gap:8px;margin-bottom:6px;font-size:12px}
+.bar-label{width:40px;font-weight:500}
+.bar-label.up{color:var(--green)}
+.bar-label.down{color:var(--yellow)}
+.bar-track{flex:1;height:8px;background:#1e2530;border-radius:4px;overflow:hidden}
+.bar-fill{height:100%;border-radius:4px;transition:width .3s}
+.bar-fill.up{background:var(--green)}
+.bar-fill.down{background:var(--yellow)}
+.bar-pct{width:40px;text-align:right;font-size:12px;color:var(--text-dim)}
+.card-timer{text-align:center;font-size:20px;font-weight:700;color:#fff;margin-top:10px;font-variant-numeric:tabular-nums}
+.card-timer .label{font-size:10px;color:var(--text-dim);font-weight:400}
+
+.tabs-row{display:flex;gap:4px;padding:0 20px;margin-top:4px}
+.tab{padding:8px 16px;font-size:12px;font-weight:500;border:1px solid var(--border);border-bottom:none;border-radius:8px 8px 0 0;cursor:pointer;color:var(--text-dim);background:transparent;transition:all .2s}
+.tab:hover{color:var(--text)}
+.tab.active{background:var(--chart-bg);color:#fff;border-color:var(--border)}
+
+.chart-container{margin:0 20px;background:var(--chart-bg);border:1px solid var(--border);border-radius:0 8px 8px 8px;padding:12px;position:relative;height:380px}
+.chart-legend{position:absolute;top:12px;left:20px;display:flex;gap:16px;z-index:2;font-size:11px}
+.chart-legend span{display:flex;align-items:center;gap:5px}
+.chart-legend .swatch{width:12px;height:3px;border-radius:2px}
+
+.badge-container{position:absolute;right:20px;top:0;bottom:0;width:60px;display:flex;flex-direction:column;justify-content:center;gap:8px;z-index:2;pointer-events:none}
+.price-badge{padding:3px 8px;border-radius:4px;font-size:11px;font-weight:700;text-align:center;color:#0d1117}
+.price-badge.up{background:var(--green)}
+.price-badge.down{background:var(--yellow)}
+
+.controls{display:flex;gap:12px;padding:12px 20px;align-items:center;flex-wrap:wrap}
+.controls label{font-size:11px;color:var(--text-dim)}
+.controls select,.controls button{background:var(--card);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:5px 10px;font-size:11px;cursor:pointer;font-family:inherit}
+.controls select:hover,.controls button:hover{border-color:var(--text-dim)}
+.controls .export-btn{background:rgba(0,229,160,.1);border-color:rgba(0,229,160,.3);color:var(--green)}
+.controls .export-btn:hover{background:rgba(0,229,160,.2)}
+
+.table-wrap{margin:16px 20px;background:var(--card);border:1px solid var(--border);border-radius:10px;overflow:hidden;max-height:360px;overflow-y:auto}
+.table-wrap h3{padding:12px 16px;font-size:13px;border-bottom:1px solid var(--border);position:sticky;top:0;background:var(--card);z-index:1}
+table{width:100%;border-collapse:collapse;font-size:12px}
+thead{position:sticky;top:40px;background:var(--card);z-index:1}
+th{text-align:left;padding:8px 12px;color:var(--text-dim);font-weight:500;border-bottom:1px solid var(--border)}
+td{padding:8px 12px;border-bottom:1px solid rgba(33,38,45,.5)}
+tr.clickable{cursor:pointer}
+tr.clickable:hover{background:rgba(0,229,160,.05)}
+.outcome-up{color:var(--green);font-weight:600}
+.outcome-down{color:var(--red);font-weight:600}
+
+::-webkit-scrollbar{width:6px;height:6px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>Polymarket Collector</h1>
+  <div class="status"><span class="dot" id="wsDot"></span><span id="wsLabel">Connecting...</span></div>
+</div>
+
+<div class="cards" id="cards"></div>
+
+<div class="tabs-row" id="tabs"></div>
+<div class="chart-container">
+  <div class="chart-legend">
+    <span><span class="swatch" style="background:var(--green)"></span>YES / UP</span>
+    <span><span class="swatch" style="background:var(--yellow)"></span>NO / DOWN</span>
+  </div>
+  <div class="badge-container">
+    <div class="price-badge up" id="badgeUp">—</div>
+    <div class="price-badge down" id="badgeDown">—</div>
+  </div>
+  <canvas id="mainChart"></canvas>
+</div>
+
+<div class="controls">
+  <label>Duration:
+    <select id="durationSel">
+      <option value="60000">1 min</option>
+      <option value="300000" selected>5 min</option>
+      <option value="900000">15 min</option>
+      <option value="3600000">1 hour</option>
+    </select>
+  </label>
+  <label>Scale:
+    <select id="scaleSel">
+      <option value="1000">1 px/sec</option>
+      <option value="5000" selected>5 px/sec</option>
+      <option value="10000">10 px/sec</option>
+    </select>
+  </label>
+  <span style="flex:1"></span>
+  <button class="export-btn" onclick="exportData('ticks')">Export Ticks JSON</button>
+  <button class="export-btn" onclick="exportData('cycles')">Export Cycles JSON</button>
+  <button class="export-btn" onclick="exportData('csv')">Export CSV</button>
+</div>
+
+<div class="table-wrap">
+  <h3>Cycle History</h3>
+  <table>
+    <thead><tr><th>#</th><th>Market</th><th>Start</th><th>End</th><th>Open UP</th><th>Final UP</th><th>Outcome</th><th>Ticks</th></tr></thead>
+    <tbody id="cyclesTbody"></tbody>
+  </table>
+</div>
+
+<script>
+const MARKETS = ['BTC_15MIN','BTC_1HOUR','ETH_15MIN','ETH_1HOUR'];
+let activeTab = MARKETS[0];
+let ws = null;
+let chart = null;
+let chartDatasets = {};
+let cycleMarkers = {};
+let statusData = {};
+
+MARKETS.forEach(m => { chartDatasets[m] = { up: [], down: [] }; cycleMarkers[m] = []; });
+
+/* ─── WebSocket ─── */
+function connectWS() {
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+  ws = new WebSocket(`${proto}://${location.host}`);
+  ws.onopen = () => {
+    document.getElementById('wsDot').classList.add('connected');
+    document.getElementById('wsLabel').textContent = 'Live';
+  };
+  ws.onclose = () => {
+    document.getElementById('wsDot').classList.remove('connected');
+    document.getElementById('wsLabel').textContent = 'Reconnecting...';
+    setTimeout(connectWS, 2000);
+  };
+  ws.onmessage = (e) => {
+    const msg = JSON.parse(e.data);
+    if (msg.type === 'status') {
+      statusData = msg.data;
+      updateCards();
+    } else if (msg.type === 'tick') {
+      handleTick(msg.data);
+    } else if (msg.type === 'cycle_close') {
+      handleCycleClose(msg.data);
+    }
+  };
+}
+
+function handleTick(tick) {
+  const m = tick.market;
+  if (!chartDatasets[m]) return;
+  const t = new Date(tick.timestamp).getTime();
+  chartDatasets[m].up.push({ x: t, y: tick.price_up });
+  chartDatasets[m].down.push({ x: t, y: tick.price_down });
+
+  if (!statusData[m]) statusData[m] = {};
+  Object.assign(statusData[m], {
+    priceUp: tick.price_up,
+    priceDown: tick.price_down,
+    secondsRemaining: tick.seconds_remaining,
+    cycleId: tick.cycle_id,
+    cycleStart: tick.cycle_start,
+    cycleEnd: tick.cycle_end,
+    active: true,
+  });
+  updateCards();
+
+  if (m === activeTab && chart) {
+    chart.update('quiet');
+    updateBadges(tick.price_up, tick.price_down);
+  }
+}
+
+function handleCycleClose(cycle) {
+  cycleMarkers[cycle.market].push({
+    time: new Date(cycle.cycle_end).getTime(),
+    outcome: cycle.outcome,
+    cycleId: cycle.cycle_id,
+  });
+  addCycleRow(cycle);
+  if (cycle.market === activeTab && chart) chart.update('quiet');
+}
+
+/* ─── Cards ─── */
+function renderCards() {
+  const container = document.getElementById('cards');
+  container.innerHTML = MARKETS.map(m => `
+    <div class="card" id="card-${m}">
+      <div class="card-header">
+        <span class="card-title">${m.replace('_',' ')}</span>
+        <span class="card-cycle" id="cycle-${m}">—</span>
+      </div>
+      <div class="bar-row">
+        <span class="bar-label up">UP</span>
+        <div class="bar-track"><div class="bar-fill up" id="barUp-${m}" style="width:50%"></div></div>
+        <span class="bar-pct" id="pctUp-${m}">—</span>
+      </div>
+      <div class="bar-row">
+        <span class="bar-label down">DOWN</span>
+        <div class="bar-track"><div class="bar-fill down" id="barDown-${m}" style="width:50%"></div></div>
+        <span class="bar-pct" id="pctDown-${m}">—</span>
+      </div>
+      <div class="card-timer"><div class="label">Remaining</div><span id="timer-${m}">--:--</span></div>
+    </div>
+  `).join('');
+}
+
+function updateCards() {
+  MARKETS.forEach(m => {
+    const s = statusData[m];
+    if (!s) return;
+    const card = document.getElementById(`card-${m}`);
+    if (!card) return;
+
+    const up = s.priceUp != null ? s.priceUp : 0.5;
+    const down = s.priceDown != null ? s.priceDown : 0.5;
+    const upPct = Math.round(up * 100);
+    const downPct = Math.round(down * 100);
+
+    document.getElementById(`pctUp-${m}`).textContent = upPct + '%';
+    document.getElementById(`pctDown-${m}`).textContent = downPct + '%';
+    document.getElementById(`barUp-${m}`).style.width = upPct + '%';
+    document.getElementById(`barDown-${m}`).style.width = downPct + '%';
+    document.getElementById(`cycle-${m}`).textContent = s.cycleId ? `Cycle #${s.cycleId}` : '—';
+
+    card.classList.toggle('up-dominant', up > 0.6);
+    card.classList.toggle('down-dominant', down > 0.6);
+
+    const sec = s.secondsRemaining != null ? s.secondsRemaining : 0;
+    const mm = String(Math.floor(sec / 60)).padStart(2, '0');
+    const ss = String(sec % 60).padStart(2, '0');
+    document.getElementById(`timer-${m}`).textContent = `${mm}:${ss}`;
+  });
+}
+
+setInterval(() => {
+  MARKETS.forEach(m => {
+    const s = statusData[m];
+    if (!s || s.secondsRemaining == null) return;
+    if (s.secondsRemaining > 0) s.secondsRemaining--;
+  });
+  updateCards();
+}, 1000);
+
+/* ─── Tabs ─── */
+function renderTabs() {
+  const container = document.getElementById('tabs');
+  container.innerHTML = MARKETS.map(m =>
+    `<div class="tab${m === activeTab ? ' active' : ''}" data-market="${m}">${m.replace('_',' ')}</div>`
+  ).join('');
+  container.querySelectorAll('.tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      activeTab = tab.dataset.market;
+      renderTabs();
+      switchChart();
+    });
+  });
+}
+
+/* ─── Chart ─── */
+function buildChart() {
+  const ctx = document.getElementById('mainChart').getContext('2d');
+  const duration = parseInt(document.getElementById('durationSel').value);
+
+  chart = new Chart(ctx, {
+    type: 'line',
+    data: {
+      datasets: [
+        {
+          label: 'YES / UP',
+          borderColor: '#00e5a0',
+          backgroundColor: 'rgba(0,229,160,0.06)',
+          borderWidth: 1.5,
+          pointRadius: 0,
+          tension: 0.3,
+          fill: { target: { value: 0.5 }, above: 'rgba(0,229,160,0.06)', below: 'transparent' },
+          data: chartDatasets[activeTab].up,
+        },
+        {
+          label: 'NO / DOWN',
+          borderColor: '#f5c842',
+          backgroundColor: 'transparent',
+          borderWidth: 1.5,
+          pointRadius: 0,
+          tension: 0.3,
+          fill: false,
+          data: chartDatasets[activeTab].down,
+        },
+      ],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { display: false },
+        streaming: { frameRate: 15 },
+        tooltip: {
+          backgroundColor: '#161b22',
+          borderColor: '#21262d',
+          borderWidth: 1,
+          titleFont: { family: 'monospace', size: 11 },
+          bodyFont: { family: 'monospace', size: 11 },
+          callbacks: {
+            title(items) {
+              if (!items.length) return '';
+              return new Date(items[0].parsed.x).toLocaleTimeString();
+            },
+            label(item) {
+              return `${item.dataset.label}: ${item.parsed.y.toFixed(3)}`;
+            },
+          },
+        },
+      },
+      scales: {
+        x: {
+          type: 'realtime',
+          realtime: {
+            duration: duration,
+            refresh: 1000,
+            delay: 500,
+            pause: false,
+            ttl: duration * 5,
+          },
+          ticks: { color: '#4a5568', font: { family: 'monospace', size: 11 }, maxRotation: 0 },
+          grid: { color: 'transparent' },
+        },
+        y: {
+          min: 0, max: 1,
+          ticks: {
+            stepSize: 0.1,
+            color: '#4a5568',
+            font: { family: 'monospace', size: 11 },
+            callback: v => v.toFixed(1),
+          },
+          grid: { color: '#1e2530' },
+        },
+      },
+    },
+    plugins: [{
+      id: 'midline',
+      beforeDraw(c) {
+        const yScale = c.scales.y;
+        const ctx = c.ctx;
+        const y = yScale.getPixelForValue(0.5);
+        ctx.save();
+        ctx.strokeStyle = '#2d3748';
+        ctx.setLineDash([6, 4]);
+        ctx.globalAlpha = 0.5;
+        ctx.beginPath();
+        ctx.moveTo(c.chartArea.left, y);
+        ctx.lineTo(c.chartArea.right, y);
+        ctx.stroke();
+        ctx.restore();
+      },
+    }, {
+      id: 'cycleLines',
+      beforeDraw(c) {
+        const markers = cycleMarkers[activeTab] || [];
+        const xScale = c.scales.x;
+        const ctx2 = c.ctx;
+        ctx2.save();
+        markers.forEach(mk => {
+          const x = xScale.getPixelForValue(mk.time);
+          if (x < c.chartArea.left || x > c.chartArea.right) return;
+          ctx2.strokeStyle = '#2d3748';
+          ctx2.setLineDash([4, 4]);
+          ctx2.beginPath();
+          ctx2.moveTo(x, c.chartArea.top);
+          ctx2.lineTo(x, c.chartArea.bottom);
+          ctx2.stroke();
+
+          ctx2.setLineDash([]);
+          ctx2.fillStyle = mk.outcome === 'UP' ? '#00e5a0' : '#f85149';
+          ctx2.font = '10px monospace';
+          ctx2.textAlign = 'center';
+          ctx2.fillText(`${mk.outcome} #${mk.cycleId}`, x, c.chartArea.top + 12);
+
+          ctx2.beginPath();
+          ctx2.moveTo(x - 4, c.chartArea.top + 16);
+          ctx2.lineTo(x + 4, c.chartArea.top + 16);
+          ctx2.lineTo(x, c.chartArea.top + 22);
+          ctx2.closePath();
+          ctx2.fill();
+        });
+        ctx2.restore();
+      },
+    }, {
+      id: 'crosshair',
+      afterEvent(c, args) {
+        c._crosshairX = args.event.type === 'mousemove' ? args.event.x : null;
+      },
+      beforeDraw(c) {
+        if (!c._crosshairX) return;
+        const ctx2 = c.ctx;
+        const x = c._crosshairX;
+        if (x < c.chartArea.left || x > c.chartArea.right) return;
+        ctx2.save();
+        ctx2.strokeStyle = '#2d3748';
+        ctx2.setLineDash([3, 3]);
+        ctx2.beginPath();
+        ctx2.moveTo(x, c.chartArea.top);
+        ctx2.lineTo(x, c.chartArea.bottom);
+        ctx2.stroke();
+        ctx2.restore();
+      },
+    }],
+  });
+}
+
+function switchChart() {
+  if (!chart) return;
+  chart.data.datasets[0].data = chartDatasets[activeTab].up;
+  chart.data.datasets[1].data = chartDatasets[activeTab].down;
+  chart.update('quiet');
+  const s = statusData[activeTab];
+  if (s) updateBadges(s.priceUp, s.priceDown);
+  else updateBadges(null, null);
+}
+
+function updateBadges(up, down) {
+  document.getElementById('badgeUp').textContent = up != null ? up.toFixed(3) : '—';
+  document.getElementById('badgeDown').textContent = down != null ? down.toFixed(3) : '—';
+}
+
+document.getElementById('durationSel').addEventListener('change', (e) => {
+  if (!chart) return;
+  const d = parseInt(e.target.value);
+  chart.options.scales.x.realtime.duration = d;
+  chart.options.scales.x.realtime.ttl = d * 5;
+  chart.update('quiet');
+});
+
+document.getElementById('scaleSel').addEventListener('change', (e) => {
+  if (!chart) return;
+  chart.options.scales.x.realtime.refresh = parseInt(e.target.value);
+  chart.update('quiet');
+});
+
+/* ─── Cycles Table ─── */
+function addCycleRow(c) {
+  const tbody = document.getElementById('cyclesTbody');
+  const tr = document.createElement('tr');
+  tr.className = 'clickable';
+  tr.addEventListener('click', () => {
+    activeTab = c.market;
+    renderTabs();
+    switchChart();
+    const t = new Date(c.cycle_start).getTime();
+    if (chart) {
+      chart.options.scales.x.realtime.pause = true;
+      chart.options.scales.x.min = t - 10000;
+      chart.options.scales.x.max = new Date(c.cycle_end).getTime() + 10000;
+      chart.update('quiet');
+      setTimeout(() => {
+        delete chart.options.scales.x.min;
+        delete chart.options.scales.x.max;
+        chart.options.scales.x.realtime.pause = false;
+        chart.update('quiet');
+      }, 8000);
+    }
+  });
+  const fmtT = (iso) => { if (!iso) return '—'; const d = new Date(iso); return d.toLocaleTimeString() + ' ' + d.toLocaleDateString('ru',{day:'numeric',month:'short'}); };
+  const fmtP = (v) => v != null ? Math.round(v * 100) + '%' : '—';
+  const outcomeClass = c.outcome === 'UP' ? 'outcome-up' : 'outcome-down';
+  const outcomeIcon = c.outcome === 'UP' ? '✅' : '❌';
+  tr.innerHTML = `
+    <td>${c.cycle_id}</td>
+    <td>${c.market}</td>
+    <td>${fmtT(c.cycle_start)}</td>
+    <td>${fmtT(c.cycle_end)}</td>
+    <td>${fmtP(c.opening_price_up)}</td>
+    <td>${fmtP(c.final_price_up)}</td>
+    <td class="${outcomeClass}">${outcomeIcon} ${c.outcome}</td>
+    <td>${c.total_ticks || '—'}</td>
+  `;
+  tbody.prepend(tr);
+}
+
+async function loadHistory() {
+  try {
+    const res = await fetch('/api/cycles');
+    const cycles = await res.json();
+    cycles.forEach(c => addCycleRow(c));
+  } catch (e) {
+    console.warn('Failed to load cycle history:', e);
+  }
+}
+
+async function loadRecentTicks() {
+  for (const m of MARKETS) {
+    try {
+      const res = await fetch(`/api/ticks?market=${m}&limit=1800`);
+      const ticks = await res.json();
+      ticks.forEach(t => {
+        const ts = new Date(t.timestamp).getTime();
+        chartDatasets[m].up.push({ x: ts, y: parseFloat(t.price_up) });
+        chartDatasets[m].down.push({ x: ts, y: parseFloat(t.price_down) });
+      });
+    } catch (e) {
+      console.warn(`Failed to load ticks for ${m}:`, e);
+    }
+  }
+  if (chart) chart.update('quiet');
+}
+
+/* ─── Export ─── */
+function exportData(type) {
+  const urls = {
+    ticks: '/api/export/ticks.json',
+    cycles: '/api/export/cycles.json',
+    csv: '/api/export/cycles.csv',
+  };
+  const a = document.createElement('a');
+  a.href = urls[type];
+  a.download = '';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+}
+
+/* ─── Init ─── */
+renderCards();
+renderTabs();
+buildChart();
+connectWS();
+loadHistory();
+loadRecentTicks();
+</script>
+</body>
+</html>
