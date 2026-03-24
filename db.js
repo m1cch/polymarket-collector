@@ -126,4 +126,10 @@ async function getFirstTick(market, cycleStart) {
   return rows[0] || null;
 }
 
-module.exports = { pool, migrate, insertTick, insertCycle, getTicks, getCycles, getAllTicks, getAllCycles, getTickCount, getFirstTick };
+async function purgeAll() {
+  await pool.query('TRUNCATE ticks RESTART IDENTITY');
+  await pool.query('TRUNCATE cycles RESTART IDENTITY');
+  console.log('[db] All old data purged');
+}
+
+module.exports = { pool, migrate, insertTick, insertCycle, getTicks, getCycles, getAllTicks, getAllCycles, getTickCount, getFirstTick, purgeAll };

@@ -81,15 +81,24 @@ async function fetchJSON(url) {
   return res.json();
 }
 
-async function fetchPrices(tokenIds) {
-  const payload = tokenIds.map(id => ({ token_id: id, side: 'BUY' }));
-  const res = await fetch(`${CLOB}/prices`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
+async function fetchMidpoint(tokenId) {
+  const res = await fetch(`${CLOB}/midpoint?token_id=${tokenId}`);
+  if (!res.ok) throw new Error(`CLOB midpoint HTTP ${res.status}`);
+  const data = await res.json();
+  return parseFloat(data.mid);
+}
+
+async function fetchAllMidpoints(pairs) {
+  const results = {};
+  const promises = pairs.map(async ({ key, upId, downId }) => {
+    const [upMid, downMid] = await Promise.all([
+      fetchMidpoint(upId),
+      fetchMidpoint(downId),
+    ]);
+    results[key] = { up: upMid, down: downMid };
   });
-  if (!res.ok) throw new Error(`CLOB prices HTTP ${res.status}`);
-  return res.json();
+  await Promise.all(promises);
+  return results;
 }
 
 async function refreshMarket(cfg) {
@@ -219,24 +228,19 @@ async function resolveCycle(cfg, state) {
 }
 
 async function pollPrices() {
-  const allTokenIds = [];
-  const tokenMap = {};
-
+  const pairs = [];
   for (const cfg of MARKETS_CONFIG) {
     const state = marketState.get(cfg.key);
     if (!state || !state.active || !state.upTokenId) continue;
-    allTokenIds.push(state.upTokenId, state.downTokenId);
-    tokenMap[state.upTokenId] = { key: cfg.key, side: 'up' };
-    tokenMap[state.downTokenId] = { key: cfg.key, side: 'down' };
+    pairs.push({ key: cfg.key, upId: state.upTokenId, downId: state.downTokenId });
   }
+  if (pairs.length === 0) return;
 
-  if (allTokenIds.length === 0) return;
-
-  let pricesResult;
+  let midpoints;
   try {
-    pricesResult = await fetchPrices(allTokenIds);
+    midpoints = await fetchAllMidpoints(pairs);
   } catch (err) {
-    console.error('[collector] fetchPrices error:', err.message);
+    console.error('[collector] fetchMidpoints error:', err.message);
     return;
   }
 
@@ -247,17 +251,24 @@ async function pollPrices() {
     const state = marketState.get(cfg.key);
     if (!state || !state.active || !state.upTokenId) continue;
 
-    const upPrice = pricesResult[state.upTokenId]?.BUY;
-    const downPrice = pricesResult[state.downTokenId]?.BUY;
+    const mp = midpoints[cfg.key];
+    if (!mp || (isNaN(mp.up) && isNaN(mp.down))) continue;
 
-    if (upPrice == null && downPrice == null) continue;
+    let priceUp = mp.up;
+    let priceDown = mp.down;
 
-    state.priceUp = parseFloat(upPrice) || 0;
-    state.priceDown = parseFloat(downPrice) || 0;
-    const spread = Math.abs(1 - state.priceUp - state.priceDown);
+    if (isNaN(priceUp) && !isNaN(priceDown)) priceUp = 1 - priceDown;
+    if (isNaN(priceDown) && !isNaN(priceUp)) priceDown = 1 - priceUp;
+
+    priceUp = Math.round(priceUp * 10000) / 10000;
+    priceDown = Math.round(priceDown * 10000) / 10000;
+
+    state.priceUp = priceUp;
+    state.priceDown = priceDown;
+    const spread = Math.round(Math.abs(1 - priceUp - priceDown) * 10000) / 10000;
 
     if (state.openingPriceUp === null) {
-      state.openingPriceUp = state.priceUp;
+      state.openingPriceUp = priceUp;
     }
 
     const endMs = new Date(state.cycleEnd).getTime();
@@ -270,9 +281,9 @@ async function pollPrices() {
       cycle_id: state.cycleId,
       cycle_start: state.cycleStart,
       cycle_end: state.cycleEnd,
-      price_up: state.priceUp,
-      price_down: state.priceDown,
-      spread: parseFloat(spread.toFixed(4)),
+      price_up: priceUp,
+      price_down: priceDown,
+      spread,
       seconds_remaining: secondsRemaining,
     };
 
