@@ -26,24 +26,53 @@ function get15mCycleId(coin) {
   return Math.floor(Date.now() / 1000 / 900);
 }
 
-function get1hSeriesSlug(coin) {
-  const map = { btc: 'btc-up-or-down-hourly', eth: 'eth-up-or-down-hourly' };
-  return map[coin];
+function getETDate() {
+  const utcNow = new Date();
+  const fmt = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/New_York',
+    year: 'numeric', month: 'numeric', day: 'numeric',
+    hour: 'numeric', hour12: false,
+  });
+  const parts = {};
+  for (const p of fmt.formatToParts(utcNow)) parts[p.type] = p.value;
+  return {
+    year: parseInt(parts.year),
+    month: parseInt(parts.month) - 1,
+    day: parseInt(parts.day),
+    hour: parseInt(parts.hour),
+  };
 }
 
 function get1hSlug(coin) {
   const months = ['january','february','march','april','may','june','july','august','september','october','november','december'];
-  const now = new Date();
-  const et = new Date(now.toLocaleString('en-US', { timeZone: 'America/New_York' }));
-  const month = months[et.getMonth()];
-  const day = et.getDate();
-  const year = et.getFullYear();
-  let hour = et.getHours();
+  const et = getETDate();
+  const month = months[et.month];
+  const day = et.day;
+  const year = et.year;
+  let hour = et.hour;
   const ampm = hour >= 12 ? 'pm' : 'am';
   hour = hour % 12 || 12;
-
   const coinName = coin === 'btc' ? 'bitcoin' : 'ethereum';
   return `${coinName}-up-or-down-${month}-${day}-${year}-${hour}${ampm}-et`;
+}
+
+function get1hSlugPrev(coin) {
+  const months = ['january','february','march','april','may','june','july','august','september','october','november','december'];
+  const utcNow = new Date(Date.now() - 3600000);
+  const fmt = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/New_York',
+    year: 'numeric', month: 'numeric', day: 'numeric',
+    hour: 'numeric', hour12: false,
+  });
+  const parts = {};
+  for (const p of fmt.formatToParts(utcNow)) parts[p.type] = p.value;
+  const et = { year: parseInt(parts.year), month: parseInt(parts.month) - 1, day: parseInt(parts.day), hour: parseInt(parts.hour) };
+  const month = months[et.month];
+  let hour = et.hour;
+  const ampm = hour >= 12 ? 'pm' : 'am';
+  hour = hour % 12 || 12;
+  const coinName = coin === 'btc' ? 'bitcoin' : 'ethereum';
+  return `${coinName}-up-or-down-${month}-${et.day}-${et.year}-${hour}${ampm}-et`;
 }
 
 async function fetchJSON(url) {
@@ -73,13 +102,11 @@ async function refreshMarket(cfg) {
       const events = await fetchJSON(`${GAMMA}/events?slug=${slug}`);
       event = events && events[0];
     } else {
-      const seriesSlug = get1hSeriesSlug(cfg.coin);
-      let events = await fetchJSON(
-        `${GAMMA}/events?series_slug=${seriesSlug}&active=true&closed=false&order=end_date&ascending=true`
-      );
+      const slug = get1hSlug(cfg.coin);
+      let events = await fetchJSON(`${GAMMA}/events?slug=${slug}`);
       if (!events || events.length === 0) {
-        const slug = get1hSlug(cfg.coin);
-        events = await fetchJSON(`${GAMMA}/events?slug=${slug}`);
+        const slugPrev = get1hSlugPrev(cfg.coin);
+        events = await fetchJSON(`${GAMMA}/events?slug=${slugPrev}`);
       }
       event = events && events[0];
     }
