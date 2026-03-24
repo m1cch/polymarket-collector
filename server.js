@@ -104,8 +104,7 @@ app.get('/api/export/cycles.csv', async (req, res) => {
 async function main() {
   try {
     await db.migrate();
-    await db.purgeAll();
-    console.log('[server] Database ready, old data purged');
+    console.log('[server] Database ready');
   } catch (err) {
     console.error('[server] DB migration error:', err.message);
     console.warn('[server] Continuing without DB — will retry on queries');
