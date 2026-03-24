@@ -11,12 +11,13 @@ const MARKETS_CONFIG = [
 ];
 
 const marketState = new Map();
+const nextMarket = new Map();
 let broadcast = () => {};
 
 function setBroadcast(fn) { broadcast = fn; }
 
-function get15mSlug(coin) {
-  const ts = Math.floor(Date.now() / 1000 / 900) * 900;
+function get15mSlug(coin, offsetSec = 0) {
+  const ts = Math.floor((Date.now() / 1000 + offsetSec) / 900) * 900;
   return `${coin}-updown-15m-${ts}`;
 }
 
@@ -53,62 +54,89 @@ async function fetchJSON(url) {
   return res.json();
 }
 
+function parseEvent(event, cfg) {
+  if (!event?.markets?.length) return null;
+  const mkt = event.markets[0];
+  const tokenIds = JSON.parse(mkt.clobTokenIds);
+  const endDate = new Date(mkt.endDate);
+  const startDate = mkt.eventStartTime
+    ? new Date(mkt.eventStartTime)
+    : new Date(endDate.getTime() - cfg.durationMin * 60000);
+  const cycleId = cfg.type === '15m'
+    ? Math.floor(startDate.getTime() / 1000 / 900)
+    : Math.floor(startDate.getTime() / 1000 / 3600);
+  return {
+    slug: event.slug,
+    gammaMarketId: mkt.id,
+    upTokenId: tokenIds[0],
+    downTokenId: tokenIds[1],
+    cycleStart: startDate.toISOString(),
+    cycleEnd: endDate.toISOString(),
+    cycleId,
+    durationMin: cfg.durationMin,
+  };
+}
+
+async function fetchEvent(cfg, offsetSec = 0) {
+  if (cfg.type === '15m') {
+    const events = await fetchJSON(`${GAMMA}/events?slug=${get15mSlug(cfg.coin, offsetSec)}`);
+    return events?.[0];
+  } else {
+    const offsetMs = offsetSec * 1000;
+    let events = await fetchJSON(`${GAMMA}/events?slug=${get1hSlug(cfg.coin, offsetMs)}`);
+    if (!events?.length) events = await fetchJSON(`${GAMMA}/events?slug=${get1hSlug(cfg.coin, offsetMs - 3600000)}`);
+    return events?.[0];
+  }
+}
+
 async function refreshMarket(cfg) {
   const state = marketState.get(cfg.key) || {};
   try {
-    let event;
-    if (cfg.type === '15m') {
-      const events = await fetchJSON(`${GAMMA}/events?slug=${get15mSlug(cfg.coin)}`);
-      event = events?.[0];
-    } else {
-      let events = await fetchJSON(`${GAMMA}/events?slug=${get1hSlug(cfg.coin)}`);
-      if (!events?.length) events = await fetchJSON(`${GAMMA}/events?slug=${get1hSlug(cfg.coin, -3600000)}`);
-      event = events?.[0];
-    }
-
-    if (!event?.markets?.length) {
+    const event = await fetchEvent(cfg);
+    const parsed = parseEvent(event, cfg);
+    if (!parsed) {
       state.active = false;
       marketState.set(cfg.key, state);
-      console.warn(`[collector] No event for ${cfg.key}`);
       return;
     }
-
-    const mkt = event.markets[0];
-    const tokenIds = JSON.parse(mkt.clobTokenIds);
-    const endDate = new Date(mkt.endDate);
-    const startDate = mkt.eventStartTime
-      ? new Date(mkt.eventStartTime)
-      : new Date(endDate.getTime() - cfg.durationMin * 60000);
-
-    const cycleId = cfg.type === '15m'
-      ? Math.floor(startDate.getTime() / 1000 / 900)
-      : Math.floor(startDate.getTime() / 1000 / 3600);
-
     Object.assign(state, {
-      key: cfg.key,
-      active: true,
-      eventSlug: event.slug,
-      gammaMarketId: mkt.id,
-      upTokenId: tokenIds[0],
-      downTokenId: tokenIds[1],
-      cycleStart: startDate.toISOString(),
-      cycleEnd: endDate.toISOString(),
-      cycleId,
-      durationMin: cfg.durationMin,
-      closed: mkt.closed || false,
-      priceUp: null,
-      priceDown: null,
-      resolving: false,
-      openingPriceUp: state.openingPriceUp ?? null,
+      key: cfg.key, active: true, ...parsed,
+      closed: false, priceUp: null, priceDown: null,
+      resolving: false, openingPriceUp: state.openingPriceUp ?? null,
     });
-
     marketState.set(cfg.key, state);
-    console.log(`[collector] Refreshed ${cfg.key}: #${cycleId}, tokens=[${tokenIds[0].slice(0,8)}..., ${tokenIds[1].slice(0,8)}...], ends ${endDate.toISOString()}`);
+    console.log(`[collector] Refreshed ${cfg.key}: #${parsed.cycleId}, ends ${parsed.cycleEnd}`);
   } catch (err) {
     console.error(`[collector] refreshMarket ${cfg.key}:`, err.message);
     state.active = false;
     marketState.set(cfg.key, state);
   }
+}
+
+async function prefetchNext(cfg) {
+  try {
+    const offsetSec = cfg.type === '15m' ? 900 : 3600;
+    const event = await fetchEvent(cfg, offsetSec);
+    const parsed = parseEvent(event, cfg);
+    if (parsed) {
+      nextMarket.set(cfg.key, parsed);
+    }
+  } catch (e) {}
+}
+
+function switchToNext(cfg) {
+  const next = nextMarket.get(cfg.key);
+  if (!next) return false;
+  const state = marketState.get(cfg.key) || {};
+  Object.assign(state, {
+    key: cfg.key, active: true, ...next,
+    closed: false, priceUp: null, priceDown: null,
+    resolving: false, openingPriceUp: null,
+  });
+  marketState.set(cfg.key, state);
+  nextMarket.delete(cfg.key);
+  console.log(`[collector] Switched ${cfg.key} → #${next.cycleId}, ends ${next.cycleEnd}`);
+  return true;
 }
 
 async function fetchClobPrices(tokenPairs) {
@@ -150,9 +178,27 @@ async function pollAllPrices() {
     const state = marketState.get(cfg.key);
     if (!state?.active || !state.upTokenId) continue;
 
+    const endMs = new Date(state.cycleEnd).getTime();
+    const secondsRemaining = Math.max(0, Math.floor((endMs - unixMs) / 1000));
+
+    if (secondsRemaining <= 0) {
+      const oldState = { ...state };
+      const switched = switchToNext(cfg);
+      if (switched) {
+        resolveCycleBackground(cfg, oldState);
+        continue;
+      } else if (!state.resolving) {
+        resolveCycleAndRefresh(cfg, state);
+        continue;
+      }
+    }
+
+    if (secondsRemaining > 0 && secondsRemaining <= 60 && !nextMarket.has(cfg.key)) {
+      prefetchNext(cfg);
+    }
+
     const rawUp = clobData[state.upTokenId]?.BUY;
     const rawDown = clobData[state.downTokenId]?.BUY;
-
     if (rawUp == null && rawDown == null) continue;
 
     const priceUp = parseFloat(rawUp) || 0;
@@ -161,11 +207,7 @@ async function pollAllPrices() {
 
     state.priceUp = priceUp;
     state.priceDown = priceDown;
-
     if (state.openingPriceUp === null) state.openingPriceUp = priceUp;
-
-    const endMs = new Date(state.cycleEnd).getTime();
-    const secondsRemaining = Math.max(0, Math.floor((endMs - unixMs) / 1000));
 
     const tick = {
       timestamp: now.toISOString(),
@@ -183,48 +225,60 @@ async function pollAllPrices() {
     try { await db.insertTick(tick); } catch (err) {
       console.error(`[collector] insertTick ${cfg.key}:`, err.message);
     }
-
     broadcast({ type: 'tick', data: tick });
-
-    if (secondsRemaining <= 0 && !state.resolving) {
-      resolveCycle(cfg, state);
-    }
   }
 }
 
-async function resolveCycle(cfg, state) {
+function resolveCycleBackground(cfg, oldState) {
+  (async () => {
+    console.log(`[collector] Background resolve #${oldState.cycleId} ${cfg.key}...`);
+    let outcome = null;
+    for (let i = 0; i < 30 && !outcome; i++) {
+      try {
+        const data = await fetchJSON(`${GAMMA}/markets/${oldState.gammaMarketId}`);
+        if (data.closed) {
+          const prices = JSON.parse(data.outcomePrices);
+          outcome = parseFloat(prices[0]) >= 0.5 ? 'UP' : 'DOWN';
+          oldState.priceUp = parseFloat(prices[0]);
+          oldState.priceDown = parseFloat(prices[1]);
+        }
+      } catch (e) {}
+      if (!outcome) await new Promise(r => setTimeout(r, 5000));
+    }
+    if (!outcome) outcome = (oldState.priceUp || 0) >= 0.5 ? 'UP' : 'DOWN';
+    await saveCycle(cfg, oldState, outcome);
+  })();
+}
+
+async function resolveCycleAndRefresh(cfg, state) {
   if (state.resolving) return;
   state.resolving = true;
   console.log(`[collector] Resolving #${state.cycleId} ${cfg.key}...`);
 
   let outcome = null;
-  let attempts = 0;
-
-  while (!outcome && attempts < 30) {
-    attempts++;
+  for (let i = 0; i < 30 && !outcome; i++) {
     try {
       const data = await fetchJSON(`${GAMMA}/markets/${state.gammaMarketId}`);
       if (data.closed) {
         const prices = JSON.parse(data.outcomePrices);
-        const upFinal = parseFloat(prices[0]);
-        outcome = upFinal >= 0.5 ? 'UP' : 'DOWN';
-        state.priceUp = upFinal;
+        outcome = parseFloat(prices[0]) >= 0.5 ? 'UP' : 'DOWN';
+        state.priceUp = parseFloat(prices[0]);
         state.priceDown = parseFloat(prices[1]);
       }
-    } catch (e) {
-      console.warn(`[collector] resolve poll ${cfg.key}:`, e.message);
-    }
+    } catch (e) {}
     if (!outcome) await new Promise(r => setTimeout(r, 5000));
   }
+  if (!outcome) outcome = (state.priceUp || 0) >= 0.5 ? 'UP' : 'DOWN';
 
-  if (!outcome) {
-    outcome = (state.priceUp || 0) >= 0.5 ? 'UP' : 'DOWN';
-    console.warn(`[collector] Fallback outcome ${cfg.key}: ${outcome}`);
-  }
+  await saveCycle(cfg, state, outcome);
+  state.resolving = false;
+  state.openingPriceUp = null;
+  await refreshMarket(cfg);
+}
 
+async function saveCycle(cfg, state, outcome) {
   const tickCount = await db.getTickCount(cfg.key, state.cycleStart, state.cycleEnd);
   const firstTick = await db.getFirstTick(cfg.key, state.cycleStart);
-
   const cycle = {
     cycle_id: state.cycleId,
     market: cfg.key,
@@ -238,18 +292,13 @@ async function resolveCycle(cfg, state) {
     total_ticks: tickCount,
     resolved_at: new Date().toISOString(),
   };
-
   try {
     await db.insertCycle(cycle);
     broadcast({ type: 'cycle_close', data: cycle });
-    console.log(`[collector] Cycle #${state.cycleId} ${cfg.key}: ${outcome}`);
+    console.log(`[collector] Cycle #${state.cycleId} ${cfg.key}: ${outcome} (${tickCount} ticks)`);
   } catch (err) {
     console.error(`[collector] insertCycle ${cfg.key}:`, err.message);
   }
-
-  state.resolving = false;
-  state.openingPriceUp = null;
-  await refreshMarket(cfg);
 }
 
 async function start() {
@@ -268,7 +317,7 @@ async function start() {
       const state = marketState.get(cfg.key);
       if (!state?.active) await refreshMarket(cfg);
     }
-  }, 30000);
+  }, 15000);
 }
 
 function getStatus() {
