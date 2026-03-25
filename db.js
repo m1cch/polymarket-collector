@@ -132,4 +132,26 @@ async function purgeAll() {
   console.log('[db] All old data purged');
 }
 
-module.exports = { pool, migrate, insertTick, insertCycle, getTicks, getCycles, getAllTicks, getAllCycles, getTickCount, getFirstTick, purgeAll };
+async function getCounts() {
+  const [ticksTotal, cyclesTotal, ticksByMarket, cyclesByMarket] = await Promise.all([
+    pool.query('SELECT COUNT(*)::bigint AS cnt FROM ticks'),
+    pool.query('SELECT COUNT(*)::bigint AS cnt FROM cycles'),
+    pool.query('SELECT market, COUNT(*)::bigint AS cnt FROM ticks GROUP BY market ORDER BY market'),
+    pool.query('SELECT market, COUNT(*)::bigint AS cnt FROM cycles GROUP BY market ORDER BY market'),
+  ]);
+
+  const byMarket = {};
+  for (const r of ticksByMarket.rows) byMarket[r.market] = { ticks: Number(r.cnt), cycles: 0 };
+  for (const r of cyclesByMarket.rows) {
+    if (!byMarket[r.market]) byMarket[r.market] = { ticks: 0, cycles: Number(r.cnt) };
+    else byMarket[r.market].cycles = Number(r.cnt);
+  }
+
+  return {
+    ticks_total: Number(ticksTotal.rows[0].cnt),
+    cycles_total: Number(cyclesTotal.rows[0].cnt),
+    by_market: byMarket,
+  };
+}
+
+module.exports = { pool, migrate, insertTick, insertCycle, getTicks, getCycles, getAllTicks, getAllCycles, getTickCount, getFirstTick, purgeAll, getCounts };

@@ -56,6 +56,15 @@ app.get('/api/cycles', async (req, res) => {
   }
 });
 
+app.get('/api/counts', async (req, res) => {
+  try {
+    res.json(await db.getCounts());
+  } catch (err) {
+    console.error('/api/counts error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.get('/api/export/ticks.json', async (req, res) => {
   try {
     const ticks = await db.getAllTicks();
